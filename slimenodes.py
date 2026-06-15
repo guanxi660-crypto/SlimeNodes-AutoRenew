@@ -13,9 +13,17 @@ TGT = os.environ.get("TG_BOT_TOKEN", "")
 TGC = os.environ.get("TG_CHAT_ID", "")
 PX = os.environ.get("SOCKS_PROXY", os.environ.get("HTTP_PROXY", ""))
 SESSION = os.environ.get("SLIME_SESSION", "")
+ACCOUNT_LABEL = os.environ.get("ACCOUNT_LABEL", "btpphlmb")
 SERVER_ID = os.environ.get("SERVER_ID", "10102")
 RENEW_THRESHOLD = int(os.environ.get("RENEW_THRESHOLD", "50"))
 RENEW_HOURS = int(os.environ.get("RENEW_HOURS", "24"))  # Only renew if <72h left
+
+# Exit codes
+EXIT_OK = 0
+EXIT_NO_SESSION = 1
+EXIT_SESSION_EXPIRED = 2
+EXIT_BALANCE_FAIL = 3
+EXIT_EARN_FAIL = 4
 
 def px(): return ["-x", PX] if PX else []
 def log(m): print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {m}", flush=True)
@@ -122,20 +130,29 @@ def renew(s, server_id):
         er(f"Renew error: {e}"); return False
 
 def process(session_id, label="acct"):
+    """
+    Earn coins and optionally renew. Returns:
+      (earned, daily_limit_hit, balance_after, renewed, exit_code)
+    exit_code is 0 for OK, non-zero for fatal errors (session expired, balance unavailable, etc).
+    """
     log(f"\n{'='*40}\n账号: {label}\n{'='*40}")
     b0 = bal(session_id)
-    if b0 is not None: log(f"余额: {b0}币")
-    else: er("无法获取余额")
+    if b0 is not None:
+        log(f"余额: {b0}币")
+    else:
+        er("无法获取余额 - SID可能已过期或网络问题")
+        return 0, False, None, False, EXIT_BALANCE_FAIL
 
     # Earn coins
-    earned = 0; bypass = 0; daily = False
+    earned = 0; bypass = 0; daily = False; session_died = False
     for i in range(MAX):
         cd = cooldown(session_id)
         if cd.get("dailyLimit"):
             log("每日上限"); daily = True; break
         ru = gen(session_id)
         if ru == "DAILY_LIMIT": daily = True; break
-        if ru == "SESSION_EXPIRED": er("Session过期"); break
+        if ru == "SESSION_EXPIRED":
+            er("Session过期"); session_died = True; break
         if not ru: er("gen失败"); break
         w = WAIT + random.randint(1, 4)
         log(f"广告{i+1}/{MAX}: 等{w}s...")
@@ -148,7 +165,8 @@ def process(session_id, label="acct"):
             bypass += 1; er("BYPASS")
             if bypass >= 3: break
             time.sleep(10)
-        elif r == "SESSION_EXPIRED": er("Session过期"); break
+        elif r == "SESSION_EXPIRED":
+            er("Session过期"); session_died = True; break
         elif r == "DAILY_LIMIT": daily = True; break
         else: er(r)
         time.sleep(random.randint(3, 6))
@@ -181,12 +199,19 @@ def process(session_id, label="acct"):
     elif b1 is not None:
         log(f"余额不足续期 (需要{RENEW_THRESHOLD}币, 当前{b1}币)")
 
-    return actual, daily, b1, renewed
+    # Decide exit code
+    if session_died:
+        return actual, daily, b1, renewed, EXIT_SESSION_EXPIRED
+    if earned == 0 and not daily and b1 is not None and b1 == b0:
+        # Tried to earn but got nothing and not daily-limited → likely session/network issue
+        return actual, daily, b1, renewed, EXIT_EARN_FAIL
+    return actual, daily, b1, renewed, EXIT_OK
+
 
 def main():
     if not SESSION:
-        er("SLIME_SESSION未设置!"); sys.exit(1)
-    c, d, b1, renewed = process(SESSION, "btpphlmb")
+        er("SLIME_SESSION未设置!"); sys.exit(EXIT_NO_SESSION)
+    c, d, b1, renewed, exit_code = process(SESSION, ACCOUNT_LABEL)
     
     # Get expiration info
     hours_left = None
@@ -201,12 +226,15 @@ def main():
     # Build detailed TG message
     lines = ["<b>🟢 SlimeNodes 刷币通知</b>"]
     lines.append(f"━━━━━━━━━━━━━━━━")
-    lines.append(f"👤 账号: btpphlmb@outlook.com")
+    lines.append(f"👤 账号: {ACCOUNT_LABEL}")
     lines.append(f"━━━━━━━━━━━━━━━━")
     
     s = "✅" if c > 0 else "❌"
     dl = " (已达每日上限)" if d else ""
-    lines.append(f"💰 刷币: {s} +{c}币{dl}")
+    if exit_code == EXIT_SESSION_EXPIRED:
+        lines.append(f"💰 刷币: ❌ SID已过期 (请更新 SLIME_SESSION secret)")
+    else:
+        lines.append(f"💰 刷币: {s} +{c}币{dl}")
     
     if b1 is not None:
         lines.append(f"🏦 余额: {b1}币")
@@ -225,6 +253,11 @@ def main():
     lines.append(f"━━━━━━━━━━━━━━━━")
     send_tg("\n".join(lines))
     log("完成!")
+    
+    # Exit with proper code so GitHub Actions shows real status
+    if exit_code != EXIT_OK:
+        er(f"退出码: {exit_code}")
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
