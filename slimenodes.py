@@ -86,12 +86,16 @@ def red(s, url):
     cmd = ["curl", "-s", "-D", hdr, "--connect-timeout", "20", "--max-time", "20"] + px()
     cmd += ["-H", f"User-Agent: {UA}", "-H", f"Cookie: {ck(s)}",
             "-H", "Referer: https://linkvertise.com/", url]
-    subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+    body = result.stdout or ""
     loc = ""
     with open(hdr) as f:
         for line in f:
             if line.lower().startswith("location:"):
                 loc = line.split(":",1)[1].strip(); break
+    # linkvertise 加了 Cloudflare bot 拦截, 看到 "Attention Required" 直接放弃整个循环
+    if "Attention Required" in body or "cf-mitigated" in body:
+        return "BLOCKED"
     if "success=true" in loc: return "OK"
     if "LVBYPASSERROR" in loc: return "BYPASS"
     if "/login" in loc: return "SESSION_EXPIRED"
@@ -161,6 +165,9 @@ def process(session_id, label="acct"):
         if r == "OK":
             earned += CPC; bypass = 0
             ok(f"+{CPC}币 (累计+{earned})")
+        elif r == "BLOCKED":
+            er("linkvertise 拦了 (CF bot challenge) - 跳过剩余")
+            break
         elif r == "BYPASS":
             bypass += 1; er("BYPASS")
             if bypass >= 3: break
