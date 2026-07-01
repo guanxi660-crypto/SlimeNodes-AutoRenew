@@ -11,7 +11,6 @@ MAX = int(os.environ.get("MAX_ADS", "20"))
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 TGT = os.environ.get("TG_BOT_TOKEN", "")
 TGC = os.environ.get("TG_CHAT_ID", "")
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
 PX = os.environ.get("SOCKS_PROXY", os.environ.get("HTTP_PROXY", ""))
 SESSION = os.environ.get("SLIME_SESSION", "")
 ACCOUNT_LABEL = os.environ.get("ACCOUNT_LABEL", "btpphlmb")
@@ -232,7 +231,7 @@ def main():
     except: pass
     
     # Build detailed TG message
-    lines = ["<b>[{REPO}] 🟢 SlimeNodes 刷币通知</b>"]
+    lines = ["<b>🟢 SlimeNodes 刷币通知</b>"]
     lines.append(f"━━━━━━━━━━━━━━━━")
     lines.append(f"👤 账号: {ACCOUNT_LABEL}")
     lines.append(f"━━━━━━━━━━━━━━━━")
