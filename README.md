@@ -64,7 +64,7 @@ GitHub Actions 每天自动运行两次：
 ## TG 通知格式
 
 ```
-🇫🇷 Aclclouds 续期通知
+🇫🇷 SlimeNodes 续期通知
 
 ✅ 续期成功
 ⏱️ 新过期时间: 6j 23h
