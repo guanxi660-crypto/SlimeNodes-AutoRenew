@@ -173,7 +173,7 @@ def main():
     if expired:
         er("Session 已过期，请更新 SLIME_SESSION secret")
         send_tg("\n".join([
-            "🇫🇷 SlimeNodes 续期通知",
+            "🇫🇷 Aclclouds 续期通知",
             "",
             "❌ Session 已过期",
             f"👤 登录账户: {mask_account(ACCOUNT_LABEL)}",
@@ -213,7 +213,7 @@ def main():
             hl = new_hl
 
     # 4. TG 通知（简洁格式）
-    lines = ["🇫🇷 SlimeNodes 续期通知", ""]
+    lines = ["🇫🇷 Aclclouds 续期通知", ""]
     if renewed:
         lines.append("✅ 续期成功")
     elif hl is None:
