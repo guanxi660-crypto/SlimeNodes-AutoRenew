@@ -1,0 +1,24 @@
+name: SlimeNodes Auto Renew
+
+on:
+  schedule:
+    # 每天两次：00:30 / 12:30 UTC（北京时间 08:30 / 20:30）
+    - cron: '30 0,12 * * *'
+  workflow_dispatch:
+
+jobs:
+  renew-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run auto renew
+        env:
+          # 敏感项走 Secrets
+          SLIME_SESSION: ${{ secrets.SLIME_SESSION }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          # 非敏感项走 Variables（Settings → Secrets and variables → Actions → Variables）
+          SERVER_ID: ${{ vars.SERVER_ID }}
+          RENEW_HOURS: ${{ vars.RENEW_HOURS }}
+          RENEW_THRESHOLD: ${{ vars.RENEW_THRESHOLD }}
+        run: python renew.py

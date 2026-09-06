@@ -1,23 +1,26 @@
-# SlimeNodes Auto Coin + Renew 🟢
+# SlimeNodes Auto Renew 🟢
 
-自动刷币 + 自动续期 [SlimeNodes](https://dash.slimenodes.com) 服务器。
+**只续期、不刷币** 的 [SlimeNodes](https://dash.slimenodes.com) 服务器自动续期脚本。
+
+> 改装自 [guanxi660-crypto/SlimeNodes-AutoCoin-btpphlmb](https://github.com/guanxi660-crypto/SlimeNodes-AutoCoin-btpphlmb)（原版为刷币 + 续期）。
+> 本版已删除全部刷币逻辑（`/lv/gen` → Linkvertise 广告赚币），仅保留续期链路，避免广告点击风控、省时省力。
 
 ## 功能
 
-- 🪙 **自动刷币** — 通过 Linkvertise 广告赚取金币（每次 +240 币）
-- 🔄 **自动续期** — 服务器到期前 <24 小时自动续期
-- 📱 **TG 通知** — 每次运行后发送详细通知到 Telegram
+- 🔄 **自动续期** — 服务器到期前 ≤ `RENEW_HOURS`（默认 24h）且余额 ≥ `RENEW_THRESHOLD`（默认 50 币）时自动调用 `/renew` 续期
+- 📱 **TG 通知** — 每次运行后发送状态通知到 Telegram（可选）
+- ⚠️ **余额不足提醒** — 余额不够续期时在通知中明确提示，可手动刷币或充值
 
 ## 工作原理
 
 纯 HTTP 方式，无需浏览器：
 
-1. 使用 Session Cookie 登录
-2. 调用 `/lv/gen` 获取 Linkvertise 链接
-3. 解码 `r` 参数（Base64）得到 redeem URL
-4. 等待 16-20 秒（服务端计时验证）
-5. Redeem URL → +12 币/次
-6. 每次运行 20 次广告 = +240 币
+1. 用 Session Cookie 请求 `/dashboard`，读取金币余额（顺带验证会话有效性）
+2. 请求 `/lastrenew?id={SERVER_ID}` 获取服务器精确到期时间
+3. 剩余时间 ≤ `RENEW_HOURS` 且余额 ≥ `RENEW_THRESHOLD` → 请求 `/renew?id={SERVER_ID}` 续期（约 115 币/次）
+4. 发送 TG 通知
+
+> 💡 **余额从哪来？** 本版不刷币，余额来自原版脚本积累或手动操作。若余额不足以续期，通知会提示"余额不足"，此时可手动去面板刷几个广告，或等待下一次运行重试。
 
 ## 定时任务
 
@@ -26,19 +29,27 @@ GitHub Actions 每天自动运行两次：
 - ⏰ **00:30 UTC**（北京时间 08:30）
 - ⏰ **12:30 UTC**（北京时间 20:30）
 
-也可手动触发 `workflow_dispatch`。
+也可手动触发 `workflow_dispatch`（Actions 页面 → Run workflow）。
 
 ## 环境变量
+
+### Secrets（Settings → Secrets and variables → Actions → Secrets）
 
 | 变量 | 说明 | 必填 |
 |------|------|------|
 | `SLIME_SESSION` | SlimeNodes session cookie (`connect.sid`) | ✅ |
 | `TG_BOT_TOKEN` | Telegram Bot Token | ❌ |
 | `TG_CHAT_ID` | Telegram Chat ID | ❌ |
-| `SERVER_ID` | 服务器 ID（默认 10102） | ❌ |
-| `MAX_ADS` | 最大广告数（默认 20） | ❌ |
-| `RENEW_HOURS` | 续期阈值小时数（默认 24） | ❌ |
-| `RENEW_THRESHOLD` | 续期最低余额（默认 50 币） | ❌ |
+
+### Variables（Settings → Secrets and variables → Actions → Variables）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `SERVER_ID` | 服务器 ID | `10102` |
+| `RENEW_HOURS` | 续期阈值小时数（剩余时间 ≤ 此值才续期） | `24` |
+| `RENEW_THRESHOLD` | 续期最低余额（币） | `50` |
+
+不配置 Variables 时自动使用默认值，全部可选。
 
 ## GitHub Secrets 设置
 
@@ -53,23 +64,29 @@ GitHub Actions 每天自动运行两次：
 ## TG 通知格式
 
 ```
-🟢 SlimeNodes 刷币通知
+🟢 SlimeNodes 续期通知
 ━━━━━━━━━━━━━━━━
-👤 账号: btpphlmb@outlook.com
+👤 账号: btpphlmb
 ━━━━━━━━━━━━━━━━
-💰 刷币: ✅ +240币
 🏦 余额: 1400币
-⏰ 到期: 161小时后 (6.7天)
-🔄 续期: ⏭️ 暂不需要 (>24h)
+⏰ 到期: 10小时后 (0.4天)
+🔄 续期: ✅ 已续期
 ━━━━━━━━━━━━━━━━
 ```
 
-## 续期逻辑
+续期状态有四种：`✅ 已续期` / `⏭️ 暂不需要 (>24h)` / `⚠️ 余额不足` / `❌ 失败`。
+会话失效时通知会提示 `🔑 Session 已过期`，此时需要重新导出 cookie 更新 `SLIME_SESSION`。
 
-- 通过 `/lastrenew?id={SERVER_ID}` API 获取精确到期时间
-- 仅当剩余 < `RENEW_HOURS`（默认 24h）且余额 ≥ `RENEW_THRESHOLD`（默认 50 币）时自动续期
-- 续期费用：约 115 币/次
+## 退出码（Actions 状态）
+
+| 码 | 含义 |
+|----|------|
+| 0 | 正常（含"暂不需要续期"等正常跳过） |
+| 1 | `SLIME_SESSION` 未设置 |
+| 2 | Session 已过期，需更新 Secret |
+| 3 | 无法获取余额（网络/面板问题） |
 
 ## 参考
 
 - [jpus/SlimeNodes-AutoCoin](https://github.com/jpus/SlimeNodes-AutoCoin) — 原始参考脚本
+- [guanxi660-crypto/SlimeNodes-AutoCoin-btpphlmb](https://github.com/guanxi660-crypto/SlimeNodes-AutoCoin-btpphlmb) — 本仓库改装前的原版
