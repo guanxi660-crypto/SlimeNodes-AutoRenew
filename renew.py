@@ -6,18 +6,17 @@
   1. 查余额   (/dashboard)
   2. 查剩余时间 (/lastrenew?id=)
   3. 到期前 ≤RENEW_HOURS 且余额 ≥RENEW_THRESHOLD 时调 /renew 续期
-  4. TG 通知
+  4. TG 通知（简洁格式：状态 + 过期时间 + 账号 + 运行时间）
 
 纯 HTTP 方式，无需浏览器。依赖系统 curl。
 """
 import os, sys, re, json, time, subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 BASE = os.environ.get("SLIME_BASE") or "https://dash.slimenodes.com"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 TGT = os.environ.get("TG_BOT_TOKEN") or ""
 TGC = os.environ.get("TG_CHAT_ID") or ""
-REPO = os.environ.get("GITHUB_REPOSITORY") or ""
 # 可选代理（vless/vmess 等需先转成 socks5/http 本地端口再填）
 PX = os.environ.get("SOCKS_PROXY") or os.environ.get("HTTP_PROXY") or ""
 SESSION = os.environ.get("SLIME_SESSION") or ""
@@ -71,13 +70,34 @@ def send_tg(msg):
         return
     run_curl(["-s", "-X", "POST", f"https://api.telegram.org/bot{TGT}/sendMessage",
               "-H", "Content-Type: application/json",
-              "-d", json.dumps({"chat_id": TGC, "text": msg, "parse_mode": "HTML"})],
+              "-d", json.dumps({"chat_id": TGC, "text": msg})],
              timeout=15)
 
 
 def ck(s):
     """拼 connect.sid cookie 头"""
     return f"connect.sid={s}"
+
+
+def mask_account(label):
+    """账号脱敏：保留首尾各 1 字符，中间 ****（含 @ 时只脱敏 @ 前部分）"""
+    local, _, domain = label.partition("@")
+    if len(local) <= 2:
+        return label
+    return local[0] + "****" + local[-1] + ("@" + domain if domain else "")
+
+
+def fmt_remaining(hours):
+    """剩余小时数 → '4j 9h' 格式（j=天 h=小时），不足 1 天只显示小时，不做小数天换算"""
+    if hours is None or hours < 0:
+        hours = 0
+    d, h = int(hours // 24), int(hours % 24)
+    return f"{d}j {h}h" if d > 0 else f"{h}h"
+
+
+def now_local():
+    """北京时间字符串 (UTC+8)，格式 2026-09-06 05:00:28"""
+    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_balance(s):
@@ -153,12 +173,11 @@ def main():
     if expired:
         er("Session 已过期，请更新 SLIME_SESSION secret")
         send_tg("\n".join([
-            f"<b>[{REPO}] 🟢 SlimeNodes 续期通知</b>",
-            "━━━━━━━━━━━━━━━━",
-            f"👤 账号: {ACCOUNT_LABEL}",
-            "━━━━━━━━━━━━━━━━",
-            "🔑 Session: ❌ 已过期 (请更新 SLIME_SESSION)",
-            "━━━━━━━━━━━━━━━━",
+            "🇫🇷 SlimeNodes 续期通知",
+            "",
+            "❌ Session 已过期",
+            f"👤 登录账户: {mask_account(ACCOUNT_LABEL)}",
+            f"⏱️ 运行时间: {now_local()}",
         ]))
         sys.exit(EXIT_SESSION_EXPIRED)
     if b is None:
@@ -171,7 +190,7 @@ def main():
     if hl is None:
         er("无法获取到期时间")
     else:
-        log(f"服务器剩余: {hl:.0f}小时 ({hl/24:.1f}天)")
+        log(f"服务器剩余: {hl:.0f}小时 ({fmt_remaining(hl)})")
 
     # 3. 续期判断：到期前 ≤RENEW_HOURS 且余额够 → 续期
     renewed = False
@@ -187,28 +206,28 @@ def main():
     elif hl is not None:
         log(f"离到期还有 {hl:.0f}h，暂不续期 (>{RENEW_HOURS}h)")
 
-    # 4. TG 通知
-    lines = [
-        f"<b>[{REPO}] 🟢 SlimeNodes 续期通知</b>",
-        "━━━━━━━━━━━━━━━━",
-        f"👤 账号: {ACCOUNT_LABEL}",
-        "━━━━━━━━━━━━━━━━",
-    ]
-    lines.append(f"🏦 余额: {b}币")
-    if hl is not None:
-        lines.append(f"⏰ 到期: {hl:.0f}小时后 ({hl/24:.1f}天)")
+    # 续期成功后重新获取新到期时间
     if renewed:
-        lines.append("🔄 续期: ✅ 已续期")
-    elif hl is not None:
-        if hl > RENEW_HOURS:
-            lines.append(f"🔄 续期: ⏭️ 暂不需要 (>{RENEW_HOURS}h)")
-        elif b < RENEW_THRESHOLD:
-            lines.append(f"🔄 续期: ⚠️ 余额不足 (需 {RENEW_THRESHOLD} 币)")
-        else:
-            lines.append("🔄 续期: ❌ 失败")
+        new_hl = get_hours_left(SESSION)
+        if new_hl is not None:
+            hl = new_hl
+
+    # 4. TG 通知（简洁格式）
+    lines = ["🇫🇷 SlimeNodes 续期通知", ""]
+    if renewed:
+        lines.append("✅ 续期成功")
+    elif hl is None:
+        lines.append("❓ 无法获取到期时间")
+    elif hl > RENEW_HOURS:
+        lines.append("⏭️ 暂不需要续期")
+    elif b < RENEW_THRESHOLD:
+        lines.append(f"⚠️ 余额不足 (需 {RENEW_THRESHOLD} 币, 当前 {b} 币)")
     else:
-        lines.append("🔄 续期: ❓ 无法获取到期时间")
-    lines.append("━━━━━━━━━━━━━━━━")
+        lines.append("❌ 续期失败")
+    if hl is not None:
+        lines.append(f"⏱️ {'新过期时间' if renewed else '过期时间'}: {fmt_remaining(hl)}")
+    lines.append(f"👤 登录账户: {mask_account(ACCOUNT_LABEL)}")
+    lines.append(f"⏱️ 运行时间: {now_local()}")
     msg = "\n".join(lines)
     log("\n" + msg)  # 通知内容同步进日志（未配 TG 也能在 Actions 日志看到完整状态）
     send_tg(msg)
