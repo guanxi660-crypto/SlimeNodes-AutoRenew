@@ -31,6 +31,15 @@ GitHub Actions 每天自动运行两次：
 
 也可手动触发 `workflow_dispatch`（Actions 页面 → Run workflow）。
 
+## 运行记录自动清理
+
+每次运行结束时会执行 `cleanup-runs` job：调用 GitHub API 把本工作流的**历史运行记录全部删除，只保留最新一份**（当前这次），Actions 页面不再堆积历史。
+
+- 只删除状态为 `completed` 的记录，正在进行中的运行不受影响
+- 清理失败不影响续期结果（该 job 标记为 `continue-on-error`）
+- 默认额外保留 `0` 条；如需再留几条历史，把 Variable `KEEP_RUNS` 改成对应数字（如 `1` 表示保留最近 1 条已完成记录 + 当前运行）
+- 依赖 `permissions: actions: write`（已写入 workflow）。若仓库把 `GITHUB_TOKEN` 设为只读，需到 Settings → Actions → General → Workflow permissions 改为 **Read and write**
+
 ## 环境变量
 
 ### Secrets（Settings → Secrets and variables → Actions → Secrets）
@@ -48,6 +57,7 @@ GitHub Actions 每天自动运行两次：
 | `SERVER_ID` | 服务器 ID | `10102` |
 | `RENEW_HOURS` | 续期阈值小时数（剩余时间 ≤ 此值才续期） | `24` |
 | `RENEW_THRESHOLD` | 续期最低余额（币） | `50` |
+| `KEEP_RUNS` | 额外保留的历史运行记录条数（`0` = 只保留最新一份） | `0` |
 
 不配置 Variables 时自动使用默认值，全部可选。
 
