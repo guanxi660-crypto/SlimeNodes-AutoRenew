@@ -3,7 +3,7 @@ name: SlimeNodes Auto Renew
 on:
   schedule:
     # 每天两次：00:30 / 12:30 UTC（北京时间 08:30 / 20:30）
-    - cron: '30 0,12 * * *'
+  - cron: '30 12 * * *'
   workflow_dispatch:
 
 # actions: write 用于运行结束后清理历史运行记录；contents: read 供 checkout 使用
